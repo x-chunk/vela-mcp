@@ -1,6 +1,7 @@
 package access
 
 import (
+	"context"
 	"fmt"
 	"go.xchunk.org/vela/api"
 	"testing"
@@ -26,5 +27,17 @@ func TestScopesAndPrefixBoundaries(t *testing.T) {
 	c := NewCredential("dummy-secret")
 	if fmt.Sprintf("%v %#v", c, c) != "[redacted] [redacted]" {
 		t.Fatal("credential printed")
+	}
+}
+
+func TestRequestContextCannotFallBackToStaticCredentials(t *testing.T) {
+	r := ContextResolver{}
+	if _, err := r.Resolve(context.Background()); err == nil {
+		t.Fatal("unauthenticated context accepted")
+	}
+	i := Identity{Subject: "grant-a", Scope: api.ScopeRO, Credential: NewCredential("dummy")}
+	resolved, err := r.Resolve(WithIdentity(context.Background(), i))
+	if err != nil || resolved.Subject != i.Subject {
+		t.Fatal("verified context lost identity")
 	}
 }

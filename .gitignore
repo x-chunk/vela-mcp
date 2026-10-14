@@ -6,3 +6,10 @@ bin/
 coverage.out
 *.test
 tmp/
+data/
+data-http/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+encryption.key

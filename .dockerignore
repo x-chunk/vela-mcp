@@ -8,3 +8,10 @@ bin
 tmp
 coverage.out
 *.test
+data
+data-http
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+encryption.key

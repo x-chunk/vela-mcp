@@ -36,6 +36,29 @@ type Resolver interface {
 	Resolve(context.Context) (Identity, error)
 }
 
+type identityContextKey struct{}
+
+// WithIdentity installs an identity verified by a trusted transport adapter.
+// Never call this with values copied directly from tool arguments or headers.
+func WithIdentity(ctx context.Context, identity Identity) context.Context {
+	return context.WithValue(ctx, identityContextKey{}, identity)
+}
+
+// ContextResolver resolves only a verified request identity. Unlike Static, it
+// cannot fall back to a process credential when a caller has not authenticated.
+type ContextResolver struct{}
+
+func (ContextResolver) Resolve(ctx context.Context) (Identity, error) {
+	if err := ctx.Err(); err != nil {
+		return Identity{}, err
+	}
+	i, ok := ctx.Value(identityContextKey{}).(Identity)
+	if !ok {
+		return Identity{}, ErrForbidden
+	}
+	return i, nil
+}
+
 type Static struct{ Identity Identity }
 
 func (s Static) Resolve(ctx context.Context) (Identity, error) {
