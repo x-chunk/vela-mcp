@@ -1,0 +1,46 @@
+# Each tool is configured independently. Missing entries take built-in defaults.
+# Unknown keys and tool names are rejected at startup; restart after editing.
+# Token stays in VELA_TOKEN (.env or environment), never here.
+[vela]
+url = "http://127.0.0.1:8080" # VELA_URL overrides this value
+timeout = "120s"             # per HTTP request AND complete tool invocation
+retries = 2                  # only requests deemed retryable by the Vela client
+
+[files]
+# Optional process/container directories. They must already exist.
+# Local paths in tool calls must be absolute and remain inside these roots.
+upload_roots = []
+download_roots = []
+max_upload_bytes = 268435456   # 256 MiB, streaming local uploads
+max_inline_bytes = 8388608    # 8 MiB, decoded text/base64 input
+max_read_bytes = 1048576      # 1 MiB, returned raw bytes; base64 expands by ~4/3
+max_download_bytes = 268435456
+
+[tools]
+server_info = true
+list_directory = true
+get_file_metadata = true
+read_file = true
+download_file = true
+create_text_file = true
+upload_file = true
+replace_file = false
+update_file_metadata = true
+set_file_visibility = true
+move_file = true
+move_directory = true
+trash_file = true
+trash_directory = false
+list_trash = true
+restore_file = true
+create_share_link = true
+list_share_links = true
+revoke_share_link = true
+inspect_directory = true
+list_directory_policies = true
+update_directory_policy = true
+reset_directory_policy = true
+update_root_directory_policy = false
+purge_file = false
+purge_trash_entry = false
+empty_trash = false
