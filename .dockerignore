@@ -5,6 +5,7 @@
 .env
 .env.*
 bin
+dist
 tmp
 coverage.out
 *.test

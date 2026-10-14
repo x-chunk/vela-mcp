@@ -1,14 +1,34 @@
 # syntax=docker/dockerfile:1
-# The build produces one runtime image, with one static stdio process.
-FROM golang:1.27.2-bookworm AS build
+# Cross-compile on the builder's native platform; the final image is static and
+# serves either stdio or HTTP. Keep Go aligned with go.mod and CI workflows.
+FROM --platform=$BUILDPLATFORM golang:1.27.2-bookworm AS build
 WORKDIR /src
+ENV CGO_ENABLED=0
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags='-s -w' -o /out/vela-mcp ./cmd/vela-mcp
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+ARG TARGETOS
+ARG TARGETARCH
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -buildvcs=false -trimpath \
+      -ldflags "-s -w \
+        -X go.xchunk.org/vela-mcp/internal/version.Version=${VERSION} \
+        -X go.xchunk.org/vela-mcp/internal/version.Commit=${COMMIT} \
+        -X go.xchunk.org/vela-mcp/internal/version.Date=${DATE}" \
+      -o /out/vela-mcp ./cmd/vela-mcp
 RUN mkdir -p /out/data && chmod 700 /out/data
 
 FROM scratch
+ARG VERSION=dev
+ARG COMMIT=none
+LABEL org.opencontainers.image.title="vela-mcp" \
+      org.opencontainers.image.description="Vela MCP connector with stdio, HTTP and local OAuth" \
+      org.opencontainers.image.source="https://github.com/x-chunk/vela-mcp" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}"
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/vela-mcp /vela-mcp
 COPY config.toml /app/config.toml
