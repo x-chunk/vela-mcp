@@ -1,34 +1,38 @@
 # Vela MCP
 
-A Go MCP server for [Vela API v1](https://docs.xchunk.org/vela/docs/api-reference.html). The prototype serves **stdio**, ships as one Docker image, and authenticates with a Vela Bearer key. Its 27 business tools cover files, metadata, visibility, moves, signed links, trash, and directory policies. 21 tools are enabled by default; content replacement, bulk deletion, root policy changes, and permanent deletion are disabled.
+A Go MCP server for [Vela API v1](https://docs.xchunk.org/vela/docs/api-reference.html), with **stdio** for local clients and **Streamable HTTP with local OAuth 2.1 authorization** for connectors. Authorization uses code flow with mandatory S256 PKCE and rotating refresh tokens. One Docker image contains the executable, configuration, and CA certificates. TLS termination belongs to your reverse proxy.
 
-## Quick start
+The 30 business tools cover files, metadata, visibility, moves, signed links, trash, directory policies, and binary HTTP transfers. The standard set exposes 21 tools over stdio and 23 over HTTP. Replacement, bulk deletion, root policy changes, and permanent deletion require explicit enablement.
 
-Requires Go 1.27.2+ and Vela v0.2.0 / API v1.
+## HTTP connector quick start
+
+Requires Go 1.27.2+ and Vela v0.2.0 / API v1. Vela must be reachable from the server; users supply their own Vela API keys through the browser authorization page.
 
 ```bash
 make build
 cp .env.example .env
 chmod 600 .env
-# Set VELA_TOKEN and VELA_URL in .env.
-./bin/vela-mcp -check
-./bin/vela-mcp -list-tools
-./bin/vela-mcp
+# Set VELA_URL; HTTP mode does not use VELA_TOKEN.
+./bin/vela-mcp -transport http \
+  -listen 127.0.0.1:8081 -issuer http://127.0.0.1:8081
 ```
 
-The last command waits for MCP messages on stdin. stdout is reserved for the protocol; diagnostics go to stderr. `-check`, `-list-tools`, and `-version` are separate commands that print a result and exit. Normal startup verifies the key and API compatibility before serving MCP. Use an `rw` key for everyday work, preferably restricted to a path prefix. An `ro` key supports file reading; trash and signed links require `rw`; permanent deletion requires `admin`.
+Use `http://127.0.0.1:8081/mcp` with a local development MCP client. A cloud connector needs a reachable HTTPS origin, for example `https://vela-mcp.example.com/mcp`; deploy the server behind your nginx using the [deployment guide](docs/deployment.md). Issuers must be root origins: deployment below a URL path prefix is unsupported.
 
-Settings live in [config.toml](config.toml). Supply the token only through `.env` or the process environment. URL precedence is: process `VELA_URL` → `.env` → TOML → built-in default. Process variables also override the token from `.env`, including an explicitly empty value.
+The client discovers OAuth endpoints, registers a public client or presents an HTTPS client metadata document, and opens the authorization page. Enter a Vela API key and approve access. The server verifies the key with Vela and stores it encrypted in local SQLite. The connector receives short-lived OAuth tokens with that key's scope and path prefix; it never receives the Vela key. No local password account or shared administrator credential is required.
+
+On first HTTP startup, the server creates `data/oauth.db`, `data/encryption.key`, and `data/transfers.db` by default. The encryption key is a private file containing 32 random bytes. Preserve it with the database; losing or replacing it makes stored Vela credentials unreadable. Existing storage with a missing or incorrect key fails startup.
+
+## stdio quick start
 
 ```bash
-./bin/vela-mcp -config /absolute/path/config.toml -env-file /absolute/path/.env
+# Set VELA_URL and VELA_TOKEN in the private .env file.
+./bin/vela-mcp -transport stdio -check
+./bin/vela-mcp -transport stdio -list-tools
+./bin/vela-mcp -transport stdio
 ```
 
-Without flags, optional `./config.toml` and `./.env` are loaded. You can select paths with `VELA_MCP_CONFIG` and `VELA_MCP_ENV_FILE`; explicitly selected files must exist. Relative paths resolve against the process working directory.
-
-## Connect a stdio client
-
-Example configuration for an MCP host using `mcpServers`:
+stdio verifies the Vela key at startup. stdout carries MCP messages; diagnostics go to stderr. Example MCP host configuration:
 
 ```json
 {
@@ -36,6 +40,7 @@ Example configuration for an MCP host using `mcpServers`:
     "vela": {
       "command": "/absolute/path/vela-mcp/bin/vela-mcp",
       "args": [
+        "-transport", "stdio",
         "-config", "/absolute/path/vela-mcp/config.toml",
         "-env-file", "/absolute/path/vela-mcp/.env"
       ]
@@ -44,136 +49,55 @@ Example configuration for an MCP host using `mcpServers`:
 }
 ```
 
-You can also supply the token through the host's `env` field instead of `.env`. The MCP resource `vela://guide` provides a short agent-facing usage guide. Tool names, descriptions, and schemas are in English; paths and metadata support Unicode.
+The same image supports stdio with `docker run --rm -i ... vela-mcp:dev -transport stdio`. Use `-i` without a TTY. See [native and Docker deployment](docs/deployment.md) for complete commands.
 
-## Docker
+## Files and attachments
 
-```bash
-docker build -t vela-mcp:dev .
-# Linux: Vela is reachable on the host's 127.0.0.1:8080.
-docker run --rm -i --network host \
-  --read-only --cap-drop=ALL --security-opt=no-new-privileges \
-  --env-file "$PWD/.env" \
-  -v "$PWD/config.toml:/app/config.toml:ro" \
-  vela-mcp:dev
-```
+New files are create-only and explicitly default to **private**. Creation applies all writable metadata in the same upload: `visibility`, `title`, `description`, `tags`, `content_type`, `disposition`, and `expires_at`. Vela assigns IDs, hashes, sizes, revisions, and bookkeeping timestamps. Directories are implicit prefixes; no empty-directory creation is needed.
 
-Use `-i` for stdio. A TTY (`-t`) is unnecessary. The runtime image contains only a static executable, CA certificates, and default configuration, running as UID/GID `65532`. Tokens and `.env` are excluded from the Docker build context. The image opens no listening port and contains no MCP database or additional service.
+For HTTP connectors, use `prepare_file_upload` to bind a destination, metadata, size, and SHA-256. Send the original bytes from the client's computing environment to the returned PUT URL using the returned authorization header. `prepare_file_download` returns an expiring browser-usable URL for the original bytes of any file, including PDF, images, Office documents, archives, audio, and arbitrary binary formats. Read-only Vela keys can prepare downloads without changing private visibility. Check `get_file_transfer_status` after a lost response.
 
-For Vela on a shared Docker network, use `VELA_URL=http://vela-dev:8080` and `--network <network>`. Docker Desktop typically uses `http://host.docker.internal:8080`; reachability depends on Vela's host bind address. The example above is tested on Linux with host networking.
+An HTTP connector alone does not transfer chat attachments. The client must perform the advertised HTTP request from its own computing environment. Its host must permit network access to your domain. Native attachments and file processing depend on the host's format and size support; an expiring link is the fallback. See the implemented [file-transfer contract](docs/http-file-transfer.md).
 
-Example Docker configuration for an MCP client:
+For stdio, `upload_file` accepts base64 or a process-visible absolute `local_path`; `download_file` writes to an allowed output directory. Configure `files.upload_roots` / `files.download_roots` and mount those directories into Docker when needed. An attached cloud file is not automatically present on the server's filesystem. HTTP deployments disable local filesystem access and omit `download_file`, even when stdio roots exist in the configuration.
 
-```json
-{
-  "mcpServers": {
-    "vela": {
-      "command": "docker",
-      "args": [
-        "run", "--rm", "-i", "--network", "host",
-        "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-        "--env-file", "/absolute/path/vela-mcp/.env",
-        "-v", "/absolute/path/vela-mcp/config.toml:/app/config.toml:ro",
-        "vela-mcp:dev"
-      ]
-    }
-  }
-}
-```
+Conversation previews default to 32 KiB. HTTP also caps each complete tool result at 128,000 serialized bytes, including text and structured representations, to keep connector responses bounded. Reduce `limit`/`max_bytes` when a result is too large, or download the original file through a transfer URL. Binary transfer limits default to 256 MiB independently of preview/result caps.
 
-## Files, attachments, and metadata
+## Configuration
 
-`create_text_file` creates a new UTF-8 file. `upload_file` accepts exactly one source: `content_base64` or an absolute `local_path` visible to the MCP process. Both apply **every writable metadata field during creation**: `visibility`, `title`, `description`, `tags`, `content_type`, `disposition`, and `expires_at`. Vela assigns the ID, SHA-256, size, revision, and bookkeeping timestamps.
-
-```json
-{
-  "path": "notes/report.md",
-  "text": "# Report\nReady for review.\n",
-  "metadata": {
-    "visibility": "private",
-    "title": "Report",
-    "description": "Review copy",
-    "tags": ["report", "review"],
-    "content_type": "text/markdown; charset=utf-8",
-    "disposition": "inline",
-    "expires_at": "7d"
-  }
-}
-```
-
-New files default to **private** and never overwrite an existing path. `replace_file` must be enabled separately and requires `expected_revision`. Directories are implicit file path prefixes; Vela has no separate `mkdir` operation or empty directories.
-
-An attachment in a Claude conversation is not automatically accessible to a stdio server. The host must supply its bytes as base64 or place the file in a directory accessible to the MCP process. Prefer local paths for large files: base64 consumes more space and tokens. Arbitrary HTTP URLs and `file://` URIs are not accepted.
-
-Local access is unavailable unless roots are configured. To enable local upload and download:
+[config.toml](config.toml) contains typed, commented settings and independent tool switches. `.env` or process environment variables supply the upstream URL, stdio token, and deployment overrides. Process variables override `.env`, including explicitly empty values; environment settings override TOML; `-transport`, `-listen`, and `-issuer` override both.
 
 ```toml
-[files]
-upload_roots = ["/files/in"]
-download_roots = ["/files/out"]
-```
+[server]
+transport = "http" # stdio remains the built-in default
 
-Directories must already exist. In Docker, mount the input directory read-only and the output directory writable, then supply paths **inside the container**:
+[http]
+listen = "127.0.0.1:8081"
+issuer = "https://vela-mcp.example.com"
 
-```bash
-docker run --rm -i --network host \
-  --user "$(id -u):$(id -g)" \
-  --read-only --cap-drop=ALL --security-opt=no-new-privileges \
-  --env-file "$PWD/.env" \
-  -v "$PWD/config.toml:/app/config.toml:ro" \
-  -v "$PWD/inbox:/files/in:ro" \
-  -v "$PWD/outbox:/files/out" \
-  vela-mcp:dev
-```
-
-`os.Root` confines access, including symlink escapes. Only regular files can be uploaded. `download_file` creates a new file with mode `0600`, verifies SHA-256, and removes an incomplete result on error. Its parent directory must exist. Default limits are 256 MiB for streaming uploads/downloads, 8 MiB for decoded inline input, and 1 MiB for conversation reads. Adjust these in TOML; Vela's limits also apply. A bounded `read_file` can return `truncated=true`; use `download_file` for a complete file.
-
-## Enable or disable tools
-
-```toml
 [tools]
 read_file = true
-create_text_file = false
+prepare_file_upload = true
+prepare_file_download = true
 replace_file = false
 purge_file = false
 ```
 
-Every tool has an independent boolean. Omitted entries inherit the standard defaults; unknown names/fields and incorrect types fail startup. `false` removes the tool from `tools/list` and makes it unavailable even by a known name. Restart to apply changes; hot reload is not implemented. Enabling a tool never grants additional Vela key permissions.
+Omitted tools inherit defaults. `false` removes a tool from discovery and execution. Unknown names/fields and incorrect types fail startup. Restart to apply changes. Enabling a tool never grants additional Vela permissions. Setting `transfers.enabled=false` removes the broker routes and all three HTTP transfer tools.
 
-The chosen configuration is **TOML plus environment secrets**: TOML provides comments, explicit types, and a readable tool inventory; environment variables are convenient for Docker and keep the token out of TOML. The tradeoff is two sources with explicit precedence. Using only `.env` is simpler to pass into a container, but dozens of switches are harder to read and easier to misspell. Individual tool switches are not duplicated in environment variables.
+Without flags, optional `./config.toml` and `./.env` are loaded. Use `-config` / `-env-file` or `VELA_MCP_CONFIG` / `VELA_MCP_ENV_FILE` for explicit files; those files must exist. Relative paths resolve against the working directory. `-list-tools` distinguishes configured enablement from transport availability. HTTP `-check` initializes and validates OAuth/transfer storage; it cannot verify a user's Vela key before browser authorization. `/healthz` checks the process, not Vela connectivity.
 
-See the complete [tool catalog](docs/tools.md) for permissions, arguments, and semantics, and [architecture notes](docs/architecture.md) for boundaries and the future OAuth 2.1/HTTP integration.
+The chosen TOML plus environment configuration makes the tool inventory readable and keeps the stdio secret out of TOML. The tradeoff is two sources with documented precedence. Individual tool switches are intentionally not duplicated in environment variables.
 
-The next HTTP stage must support uploads from cloud chat attachments and downloads
-of arbitrary binary files into the client's own computing environment, with file
-delivery back to the user. The proposed [HTTP transfer contract](docs/http-file-transfer.md)
-records both workflows and their authorization boundaries. These transfer routes
-are planned and are not present in the current stdio executable.
-
-## Development and verification
+## Development
 
 ```bash
 make test
 make check
-```
-
-Unit/protocol tests cover configuration precedence, unknown switches, scopes and prefixes, identity changes between requests, safe creation/replacement, UTF-8/binary reads, filesystem containment, download cleanup, and disabled tools in the protocol.
-
-Integration tests run separately against a **disposable** Vela store. The key file uses lines `admin: <key>`, `ro: <key>`, and `rw: <key>`. Keys are not saved in the repository or printed by tests.
-
-```bash
 make build
-VELA_MCP_TEST_URL=http://127.0.0.1:8080 \
-VELA_MCP_TEST_KEYS=/absolute/path/to/test/.keys \
-VELA_MCP_TEST_BINARY="$PWD/bin/vela-mcp" \
-go test -tags=integration -v ./test/integration
-
-# Only the stdio smoke test, through Docker:
-VELA_MCP_TEST_KEYS=/absolute/path/to/test/.keys \
-VELA_MCP_TEST_IMAGE=vela-mcp:dev \
-go test -tags=integration -run TestStdio -v ./test/integration
+docker build -t vela-mcp:dev .
 ```
 
-The integration scenario invokes all 27 tools with `admin`, checks `ro`/`rw` rejections, metadata on creation, stale revisions, Unicode paths, binary/local transfers, pagination, links after moves, and restore. It uses unique prefixes and removes its data. A temporary root policy title change is restored; bulk purge is tested with a 520-week cutoff. Do not run this scenario against production. The real subprocess verifies stdio initialization, discovery, creation, reading, and deletion; accidental stdout diagnostics would break this test.
+Tests cover authority isolation, schemas, switches, filesystem containment, OAuth consent/PKCE, token lifecycle/replay, encrypted persistence, Host/Origin policy, and verified binary transfers. Integration tests against a disposable Vela instance cover business workflows, real stdio and HTTP MCP clients, and file transfer. See [verification commands](docs/deployment.md#verification) for native/Docker options. Never point destructive integration scenarios at production.
 
-HTTP, OAuth endpoints, MCP accounts, MCP SQLite persistence, Vela API/signing key administration, backups, storage migration, and recursive local-directory upload are not implemented. Local `velad` administration commands are outside the public REST API.
+See [tool contracts](docs/tools.md), [architecture](docs/architecture.md), [HTTP transfers](docs/http-file-transfer.md), and [deployment and operations](docs/deployment.md). HTTP deployment does not include nginx/Caddy, TLS certificates, password accounts, a grant-management dashboard, Vela key administration, or automatic delivery into a client's native attachment UI.

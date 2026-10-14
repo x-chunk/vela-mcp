@@ -1,79 +1,78 @@
-# Architecture and future OAuth integration
+# Architecture
+
+The executable selects stdio or HTTP at its composition root. Both transports use the same application workflows and request-scoped authority checks. OAuth and persistence are adapters; the business layer imports neither SQL nor the MCP SDK.
 
 ```mermaid
 flowchart LR
-    Host[MCP host] --> Stdio[transport/stdio]
-    Stdio --> MCP[mcpserver: schemas and result mapping]
-    MCP --> App[app: request Workspace and workflows]
-    App --> Access[access.Resolver: caller identity]
-    App --> Port[GatewayFactory / Gateway]
-    Port --> REST[velaclient: public Vela client]
-    REST --> Vela[Vela API v1]
-    App --> Files[LocalFiles port]
-    Files --> Roots[localfiles: os.Root capabilities]
-    Main[cmd/vela-mcp: composition root] --> MCP
-    Main --> Access
-    Main --> REST
-    Main --> Roots
+    Local[Local MCP host] --> Stdio[transport/stdio]
+    Remote[Connector] --> HTTP[transport/httpserver]
+    Browser[Authorization page] --> OAuth[oauth: consent and tokens]
+    HTTP --> OAuth
+    OAuth --> SQLite[(OAuth SQLite + encrypted Vela keys)]
+    Stdio --> MCP[mcpserver: tool contracts]
+    HTTP --> MCP
+    MCP --> App[app: request Workspace]
+    App --> Access[access: identity and policy]
+    App --> REST[velaclient: Gateway adapter]
+    REST --> Vela[Vela REST API]
+    MCP --> Transfer[transfers: capability broker]
+    HTTP --> Transfer
+    Transfer --> App
+    Transfer --> OAuth
+    Transfer --> TransferDB[(Transfer SQLite)]
+    Transfer --> Spool[Private verified disk spool]
+    App --> Roots[localfiles: stdio-only roots]
 ```
 
-## Boundaries
+## Package boundaries
 
-| Package | Responsibility | Does not know about |
-| --- | --- | --- |
-| `cmd/vela-mcp` | Configuration, key/API verification, wiring, signal lifecycle | Individual tool workflows |
-| `internal/config` | Strict TOML, environment precedence, defaults, validation | MCP sessions, networking, OAuth |
-| `internal/catalog` | Single inventory of switches and risk defaults | Backend and transport |
-| `internal/access` | Identity, redacted credential, Resolver, scopes/prefix | MCP, HTTP, databases |
-| `internal/app` | Workflows, authority checks, file creation/transfer | MCP SDK, HTTP client, config, SQLite |
-| `internal/velaclient` | Gateway implementation using the official Vela client | MCP and user authentication flows |
-| `internal/localfiles` | Allowed roots, regular-file input, exclusive verified output | Vela credentials and transport |
-| `internal/mcpserver` | Schemas, registration, annotations, results, guide resource | Static tokens, HTTP routing, identity persistence |
-| `internal/transport/stdio` | MCP stdio lifecycle | Business workflows and authorization |
+| Package | Responsibility |
+| --- | --- |
+| `cmd/vela-mcp` | Configuration, startup checks, adapter wiring, selected transport, signal lifecycle |
+| `internal/config` | Strict TOML, environment precedence, defaults and validation |
+| `internal/catalog` | Single tool inventory and risk defaults |
+| `internal/access` | Redacted upstream credential, caller identity, request Resolver, scope/prefix policy |
+| `internal/app` | Transport-independent workflows, validated stream contracts and authority checks |
+| `internal/velaclient` | Application Gateway ports implemented with Vela's public Go client |
+| `internal/localfiles` | Explicit filesystem roots, regular-file inputs, exclusive verified outputs |
+| `internal/mcpserver` | Tool schemas, descriptions, annotations, result/error mapping and guide resource |
+| `internal/oauth` | Authorization server, consent, client registration/metadata, token lifecycle, encrypted SQLite |
+| `internal/transfers` | Scoped capability persistence, byte routes, bounded spooling and receipts |
+| `internal/transport/httpserver` | Host/Origin policy, OAuth bearer middleware, MCP HTTP transport, routing/lifecycle |
+| `internal/transport/stdio` | MCP stdio lifecycle |
 
-The application uses `go.xchunk.org/vela/api` as public value contracts. This is an intentional dependency on the versioned Vela API, not its HTTP implementation. Port options belong to the application, so `client.UploadOptions` and HTTP headers never enter workflows. The Vela client and MCP SDK are pinned in `go.mod`/`go.sum`; the runtime imports neither Vela internal packages nor its SQLite implementation. An architecture import test prevents business code from importing MCP, config, filesystem adapters, or the REST client.
+`go.xchunk.org/vela/api` supplies the public value contracts. Application options belong to application ports; upstream HTTP headers and `client.UploadOptions` stay in the REST adapter. An import architecture test enforces this boundary. SQLite uses a pure-Go driver, so the image keeps a static executable with `CGO_ENABLED=0`.
 
-## One invocation
+## Request identity
 
-1. The MCP SDK validates the input schema. Missing/disabled tools cannot execute.
-2. The handler sets an overall timeout and calls `Service.Open(ctx)`.
-3. `access.Resolver` resolves the caller identity **in this request context**.
-4. `GatewayFactory` creates a client with that identity's credential. The service has no global backend key.
-5. The workflow normalizes paths, checks scope/prefix, validates values, and calls ports.
-6. Vela independently checks scope, paths, and revisions as the final data owner.
-7. The handler returns structured output/JSON text or `isError=true` with a normalized error.
+`Service` owns dependencies; a `Workspace` owns the identity and Gateway for one invocation. The service has no shared administrator key. In stdio, a verified Vela key supplies a `Static` resolver for that process. HTTP uses a `ContextResolver` which accepts only identities placed in context by the trusted bearer adapter. Tool arguments, metadata and MCP session headers cannot select another identity.
 
-A Workspace lives only for one invocation. The static stdio Resolver receives scope/prefix after the startup `/info` check. Credential formatting is redacted and its token is not an exported serializable field. Startup logs go to stderr and include no arguments, contents, key secrets, or signed URLs. Network failures are normalized without diagnostic URLs; upstream API errors retain useful codes/details/request IDs.
+On every HTTP request, OAuth checks the opaque access token and its active grant, decrypts that grant's Vela credential, and attaches its subject, Vela scope and path prefix to the request. MCP handlers resolve it again when opening a Workspace. Stateless Streamable HTTP sessions prevent a session from caching another user's identity. HTTP composition leaves the LocalFiles port unset and omits the local download tool.
 
-Opaque-ID operations cannot bypass application authority: restore/purge bind trash IDs to authorized original paths, and revoke binds link IDs to authorized paths. Ancestor listings are narrowed to the identity's prefix before calling Vela. Root mutations and bulk purges require unrestricted admin. The Access Resolver is a trusted security boundary: it must return a verified, unexpired identity with authority no broader than its upstream key.
+The application normalizes paths, narrows ancestor listings, checks scope/prefix, validates values, and calls ports. Vela independently enforces the key's own rights and revisions. Opaque link/trash IDs are bound to accessible paths before mutation. Root policy changes and bulk purges require unrestricted admin authority. Disabled tools are absent from discovery and cannot run by name.
 
-## Filesystem capabilities
+## OAuth storage and lifecycle
 
-An MCP client's roots are not treated as local-access authorization. Only host-configured roots are permitted. `os.Root` confines operations to opened directories and prevents symlink/traversal escapes. Linux uploads use `O_NONBLOCK` to avoid hanging on a raced-in FIFO; regular-file type is checked again on the open descriptor. Other platforms have a regular-file-check fallback; the Docker runtime is Linux.
+The local authorization server implements authorization code with mandatory S256 PKCE, redirect binding, the `/mcp` resource audience, rotating refresh tokens, and revocation. HTTPS callbacks match exactly; native loopback HTTP callbacks may vary only their port. The concrete callback is stored and matched exactly during token exchange. Only public clients with `token_endpoint_auth_method=none` are supported. Clients may use dynamic registration or an HTTPS client ID metadata document; a client name is self-asserted rather than an identity certificate. Public metadata fetching uses a separate, bounded HTTPS client that rejects private/reserved addresses and redirects.
 
-Base64/text limits are checked before upload. A local source is hashed with its original size as a bound, then rewound. Server-side SHA-256 protects against changes during transfer. Creation uses `If-None-Match: *`; replacement requires `If-Match`. The upstream client produces metadata headers, including percent-encoded Unicode title/description. Text creation also uses the streaming endpoint: metadata and content commit together, and Vela's small inline JSON endpoint limit does not constrain this workflow.
+Consent is bound to a short-lived browser transaction, cookie and CSRF token. Users enter a Vela API key; the server verifies `/info` before issuing a grant. The OAuth scope is `vela`; effective operations remain the entered key's actual `ro`, `rw` or `admin` authority and prefix. Each consent creates a distinct stable grant subject.
 
-Local output uses `O_EXCL`, mode `0600`, bounded copying, checksum verification, sync, and cleanup on failure. The tools do not create parent directories or overwrite local files. Timeout/cancellation reaches Vela and local streaming copies. Truncated reads do not claim to verify the full-file hash.
+OAuth tokens, authorization codes and browser transaction secrets are hashed at rest. Vela credentials are encrypted with AES-GCM and a separate 32-byte key file; grant identity binds the encrypted value. Access tokens expire independently. Refresh rotation does not extend the grant's absolute lifetime. Refresh replay or token revocation revokes the entire grant, invalidating its access/refresh tokens and file capabilities. The database encryption sentinel rejects a missing/replaced key rather than silently generating unusable replacement state.
 
-## Moving to HTTP and OAuth 2.1
+SQLite files and the key are private local files. This is credential encryption, not whole-database encryption: grant metadata remains visible to someone who can read the database. The key and database must be backed up together. No password account, hosted identity provider, JWT signing infrastructure or shared upstream token is involved.
 
-The next stage must also support bidirectional binary transfer for cloud clients:
-upload attachments into Vela, download any file into the client's computing
-environment, process it there, and return it to the user. See the proposed
-[HTTP file-transfer contract](http-file-transfer.md). This uses HTTP byte routes
-alongside MCP control operations; it does not require base64 or shared filesystem
-paths between the client and the server.
+## File boundaries
 
-This prototype has **no** OAuth server, HTTP listener, or MCP SQLite persistence. It provides integration boundaries rather than a placeholder OAuth implementation.
+stdio roots are operator-supplied filesystem capabilities, not MCP client roots. `os.Root` confines access, including symlink/traversal escapes. Uploads accept regular files; local downloads use exclusive creation, mode `0600`, checksum verification, and cleanup. Parents must exist. Neither direction overwrites local files.
 
-For the next stage:
+HTTP transfers bind one grant subject, normalized path/object version, size, hash and metadata. The transfer database stores capability hashes and a subject reference, never upstream credentials. Redemption rechecks the OAuth grant and creates a fresh Workspace with its identity and no LocalFiles port. Upload claims are atomic and single-use. Downloads allow bounded retries and ranges without changing visibility.
 
-1. Add MCP Streamable HTTP transport. Its network adapter must validate Origin/Host, bound request bodies, manage session lifecycle, and propagate verified authentication through request context. Keep stdio as a separate launch option.
-2. Add an `access.Resolver` that reads verified context and resolves subject/scopes/prefix and a Vela credential. Never derive authority from tool arguments, arbitrary headers, `_meta`, or an unverified JWT.
-3. Define application-owned ports for clients, authorization codes, grants, refresh tokens, mappings, and credential lookup. Implement SQLite in a separate adapter; workflows and MCP handlers must not import SQL. The adapter owns migrations.
-4. Implement OAuth 2.1 authorization/token/revocation endpoints and lifecycle, along with MCP-required discovery. Map OAuth permissions to Vela scope/prefix, ensuring effective authority never exceeds the upstream key. Do not give every user the authority of a shared unrestricted admin key.
-5. Supply the same `mcpserver.New` with a Service using the new Resolver. Do not cache request identity in the server or shared session. Test revocation/expiry, client binding, cross-user isolation, and opaque-ID authorization separately.
+Both byte directions spool into private temporary files next to transfer storage. Copies have fixed byte bounds and constant RAM use. Full size/hash verification happens before a Vela mutation or response containing file bytes. Vela also checks upload hashes. Source metadata and checksum checks reject a download racing with replacement. Files are removed after use and stale spools are cleaned at startup; four concurrent transfers bound disk consumption. Interrupted upload claims become uncertain after restart; status can observe matching destination content without pretending that matching content proves the original request committed.
 
-Per-user Vela keys with matching scope/prefix are the most direct backend mapping. If a shared service credential becomes necessary, local authority narrowing and authorization of every opaque-ID operation are mandatory; the existing scoped bulk-purge restriction already closes one such escape. Never carry the static stdio identity from the composition root into an HTTP deployment.
+Creation uses conditional create-only uploads. `replace_file` is separately enabled and requires a revision; the HTTP upload broker cannot bypass this by replacing content. Relative creation expiry is fixed when a transfer is prepared. Download responses force attachment disposition, `nosniff` and a restrictive CSP so arbitrary uploaded HTML cannot execute alongside OAuth consent pages.
 
-Discovery details, grant flow, session storage, consent UI, and backend credential issuance need separate design in the next stage. Interfaces alone do not make an HTTP deployment secure: a verified Resolver and a complete OAuth lifecycle are required.
+## HTTP and operational boundary
+
+The configured issuer defines public URLs and the allowed host. Forwarding headers do not choose the issuer or establish caller identity. Protected browser requests require an explicitly allowed Origin; machine requests without Origin are accepted. Discovery, registration and token/revocation exchanges support public CORS without browser credentials. Request bodies, headers and timeouts are bounded. The reverse proxy owns HTTPS, external request limiting and access-log redaction.
+
+Run one process per persistent state directory. SQLite durability supports restart/recovery, not shared-state active replicas. `/healthz` reports process availability only. Native conversation attachments and the client's outbound network permissions remain host responsibilities. See [deployment](deployment.md) and [file transfer](http-file-transfer.md) for the concrete routes and operating contract.
