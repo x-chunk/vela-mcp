@@ -94,10 +94,13 @@ The chosen TOML plus environment configuration makes the tool inventory readable
 ```bash
 make test
 make check
+make lint
 make build
 docker build -t vela-mcp:dev .
 ```
 
 Tests cover authority isolation, schemas, switches, filesystem containment, OAuth consent/PKCE, token lifecycle/replay, encrypted persistence, Host/Origin policy, and verified binary transfers. Integration tests against a disposable Vela instance cover business workflows, real stdio and HTTP MCP clients, and file transfer. See [verification commands](docs/deployment.md#verification) for native/Docker options. Never point destructive integration scenarios at production.
 
-See [tool contracts](docs/tools.md), [architecture](docs/architecture.md), [HTTP transfers](docs/http-file-transfer.md), and [deployment and operations](docs/deployment.md). HTTP deployment does not include nginx/Caddy, TLS certificates, password accounts, a grant-management dashboard, Vela key administration, or automatic delivery into a client's native attachment UI.
+CI runs the shared verification workflow for branch pushes, pull requests, and releases. SemVer `v*` tags publish six-platform executable archives through GoReleaser and a multi-arch Docker Hub image after verification. Configure `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, and `DOCKERHUB_IMAGE` as described in [CI and releases](docs/releases.md).
+
+See [tool contracts](docs/tools.md), [architecture](docs/architecture.md), [HTTP transfers](docs/http-file-transfer.md), [deployment and operations](docs/deployment.md), and [CI and releases](docs/releases.md). HTTP deployment does not include nginx/Caddy, TLS certificates, password accounts, a grant-management dashboard, Vela key administration, or automatic delivery into a client's native attachment UI.

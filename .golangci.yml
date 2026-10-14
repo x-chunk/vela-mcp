@@ -1,0 +1,46 @@
+# Keep the CLI version in sync with the Makefile and verify.yml.
+version: "2"
+
+run:
+  timeout: 5m
+  # Include the opt-in integration harness in static analysis without running it.
+  build-tags:
+    - integration
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - errcheck
+    - errorlint
+    - govet
+    - ineffassign
+    - staticcheck
+    - unconvert
+    - unused
+  settings:
+    errcheck:
+      # Deliberately ignored cleanup errors use an explicit blank assignment.
+      check-blank: false
+    staticcheck:
+      # Preserve readable compound authorization predicates and explicit state
+      # branches; quick-fix suggestions do not indicate correctness problems.
+      checks:
+        - all
+        - -QF1001
+        - -QF1003
+  exclusions:
+    generated: lax
+    presets:
+      - std-error-handling
+    rules:
+      # Test helpers use fatal assertions after intentionally terse setup and
+      # cleanup. Production paths remain subject to all enabled checks.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - bodyclose
+
+formatters:
+  enable:
+    - gofmt

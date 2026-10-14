@@ -111,7 +111,7 @@ func (f *Files) SaveDownload(ctx context.Context, p string, src io.Reader, maxBy
 	defer func() {
 		if err != nil {
 			dst.Close()
-			r.Remove(rel)
+			_ = r.Remove(rel)
 		}
 	}()
 	h := sha256.New()

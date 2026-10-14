@@ -1,4 +1,4 @@
-// vela-mcp is a stdio MCP server. This is the composition root: configuration,
+// vela-mcp serves MCP over stdio or HTTP. This is the composition root: configuration,
 // upstream credential verification, adapters, use cases and transport meet here.
 package main
 
@@ -24,6 +24,7 @@ import (
 	"go.xchunk.org/vela-mcp/internal/transport/httpserver"
 	"go.xchunk.org/vela-mcp/internal/transport/stdio"
 	"go.xchunk.org/vela-mcp/internal/velaclient"
+	buildversion "go.xchunk.org/vela-mcp/internal/version"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func run() error {
 		return fmt.Errorf("unexpected positional arguments")
 	}
 	if version {
-		fmt.Println(mcpserver.Version)
+		fmt.Println(buildversion.Get().String())
 		return nil
 	}
 	c, err := config.Load(config.Options{ConfigPath: configPath, EnvPath: envPath})
@@ -113,7 +114,7 @@ func run() error {
 		return nil
 	}
 	service := &app.Service{Resolver: access.Static{Identity: access.Identity{Subject: "vela-key:" + info.Key.ID, Scope: info.Key.Scope, Prefix: info.Key.Prefix, Credential: credential}}, Gateways: factory, Files: files, Limits: app.Limits{MaxUploadBytes: c.Files.MaxUploadBytes, MaxInlineBytes: c.Files.MaxInlineBytes, MaxReadBytes: c.Files.MaxReadBytes, MaxDownloadBytes: c.Files.MaxDownloadBytes}}
-	slog.Info("starting Vela MCP", "transport", "stdio", "version", mcpserver.Version)
+	slog.Info("starting Vela MCP", "transport", "stdio", "version", buildversion.Get().Version)
 	return stdio.Run(ctx, mcpserver.New(service, c.Tools, timeout))
 }
 
@@ -170,6 +171,6 @@ func runHTTP(ctx context.Context, c config.Config, factory velaclient.Factory, t
 	if broker != nil {
 		opts.Transfers = broker.Handler()
 	}
-	slog.Info("starting Vela MCP", "transport", "http", "listen", c.HTTP.Listen, "issuer", c.HTTP.Issuer, "version", mcpserver.Version)
+	slog.Info("starting Vela MCP", "transport", "http", "listen", c.HTTP.Listen, "issuer", c.HTTP.Issuer, "version", buildversion.Get().Version)
 	return httpserver.Run(ctx, opts)
 }

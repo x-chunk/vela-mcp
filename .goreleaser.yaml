@@ -1,0 +1,54 @@
+# Docker publication stays in release.yml so it uses the same Docker Hub
+# configuration and tagging policy as Vela. GoReleaser packages the executable.
+version: 2
+project_name: vela-mcp
+
+builds:
+  - id: vela-mcp
+    main: ./cmd/vela-mcp
+    binary: vela-mcp
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags:
+      - -trimpath
+      - -buildvcs=false
+    # Commit timestamps keep rebuilt release binaries independent of wall time.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - >-
+        -s -w
+        -X go.xchunk.org/vela-mcp/internal/version.Version=v{{ .Version }}
+        -X go.xchunk.org/vela-mcp/internal/version.Commit={{ .FullCommit }}
+        -X go.xchunk.org/vela-mcp/internal/version.Date={{ .CommitDate }}
+
+archives:
+  - id: executable
+    ids: [vela-mcp]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    wrap_in_directory: true
+    # Explicit files prevent runtime state, .env, and credentials entering releases.
+    files:
+      - README.md
+      - config.toml
+      - .env.example
+      - docs/*.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ .Version }}-SNAPSHOT-{{ .ShortCommit }}"
+
+changelog:
+  use: github-native
+
+release:
+  name_template: "Vela MCP v{{ .Version }}"
+  prerelease: auto

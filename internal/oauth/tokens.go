@@ -66,7 +66,7 @@ func (s *Server) exchangeCode(w http.ResponseWriter, r *http.Request, c client) 
 		serverError(w)
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var a codeRecord
 	err = tx.QueryRowContext(r.Context(), `SELECT c.grant_id,c.client_id,c.redirect_uri,c.challenge,c.resource,c.expires_at,c.consumed,g.expires_at,g.revoked FROM authorization_codes c JOIN grants g ON g.id=c.grant_id WHERE c.code_hash=?`, digest(code)).Scan(&a.grantID, &a.clientID, &a.redirect, &a.challenge, &a.resource, &a.expires, &a.consumed, &a.grantExpires, &a.revoked)
 	now := time.Now().Unix()
@@ -130,7 +130,7 @@ func (s *Server) exchangeRefresh(w http.ResponseWriter, r *http.Request, c clien
 		serverError(w)
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var grantID, clientID, resource string
 	var expires, grantExpires int64
 	var consumed, revoked int

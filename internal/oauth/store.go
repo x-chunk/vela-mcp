@@ -119,7 +119,7 @@ func (s *Server) cleanup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	for _, query := range []string{`DELETE FROM authorization_transactions WHERE expires_at<=?`, `DELETE FROM authorization_codes WHERE expires_at<=?`, `DELETE FROM access_tokens WHERE expires_at<=?`, `DELETE FROM grants WHERE expires_at<=?`} {
 		if _, err := tx.ExecContext(ctx, query, now); err != nil {
 			return err

@@ -81,7 +81,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		serverError(w)
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var count int
 	if err = tx.QueryRowContext(r.Context(), `SELECT COUNT(*) FROM clients`).Scan(&count); err != nil {
 		serverError(w)
@@ -105,17 +105,17 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) validateClient(c *client) error {
 	if c.AuthMethod != "" && c.AuthMethod != "none" {
-		return errors.New("Only public clients with token_endpoint_auth_method=none are supported")
+		return errors.New("only public clients with token_endpoint_auth_method=none are supported")
 	}
 	c.AuthMethod = "none"
 	if c.Name == "" {
 		c.Name = "MCP client"
 	}
 	if len(c.Name) > 128 || strings.ContainsAny(c.Name, "\r\n\x00") {
-		return errors.New("Invalid client name")
+		return errors.New("invalid client name")
 	}
 	if len(c.Redirects) == 0 || len(c.Redirects) > 10 {
-		return errors.New("One to ten exact redirect URIs are required")
+		return errors.New("one to ten exact redirect URIs are required")
 	}
 	seen := map[string]bool{}
 	for _, redirect := range c.Redirects {
@@ -123,11 +123,11 @@ func (s *Server) validateClient(c *client) error {
 			return err
 		}
 		if seen[redirect] {
-			return errors.New("Duplicate redirect URI")
+			return errors.New("duplicate redirect URI")
 		}
 		seen[redirect] = true
 		if len(s.opts.AllowedRedirectURIs) > 0 && !contains(s.opts.AllowedRedirectURIs, redirect) {
-			return errors.New("Redirect URI is not in the administrator allowlist")
+			return errors.New("redirect URI is not in the administrator allowlist")
 		}
 	}
 	if len(c.Grants) == 0 {
@@ -135,7 +135,7 @@ func (s *Server) validateClient(c *client) error {
 	}
 	for _, g := range c.Grants {
 		if g != "authorization_code" && g != "refresh_token" {
-			return errors.New("Unsupported grant type")
+			return errors.New("unsupported grant type")
 		}
 	}
 	if !contains(c.Grants, "authorization_code") {
@@ -145,10 +145,10 @@ func (s *Server) validateClient(c *client) error {
 		c.Responses = []string{"code"}
 	}
 	if len(c.Responses) != 1 || c.Responses[0] != "code" {
-		return errors.New("Only the code response type is supported")
+		return errors.New("only the code response type is supported")
 	}
 	if c.Scope != "" && c.Scope != "vela" {
-		return errors.New("Only the vela scope is supported")
+		return errors.New("only the vela scope is supported")
 	}
 	return nil
 }
@@ -221,7 +221,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.sameOrigin(r) {
-		http.Error(w, "Invalid authorization origin", 403)
+		http.Error(w, "Invalid authorization origin", http.StatusForbidden)
 		return
 	}
 	if !parseForm(w, r, 16*1024) {
@@ -280,7 +280,7 @@ func (s *Server) consent(w http.ResponseWriter, r *http.Request) {
 		serverError(w)
 		return
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	result, err := tx.ExecContext(r.Context(), `UPDATE authorization_transactions SET consumed=1 WHERE id_hash=? AND consumed=0 AND expires_at>?`, digest(id), time.Now().Unix())
 	if err != nil {
 		serverError(w)

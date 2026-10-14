@@ -47,7 +47,7 @@ func (s *Server) lookupClient(ctx context.Context, id string) (client, error) {
 	if err != nil {
 		return client{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var count int
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM clients`).Scan(&count); err != nil {
 		return client{}, err

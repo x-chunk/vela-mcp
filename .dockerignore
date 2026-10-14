@@ -5,6 +5,8 @@
 .env
 .env.*
 bin
+/vela-mcp
+dist
 tmp
 coverage.out
 *.test
