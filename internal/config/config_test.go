@@ -59,3 +59,28 @@ func TestMissingExplicitFilesAndURL(t *testing.T) {
 		}
 	}
 }
+
+func TestHTTPConfigurationValidation(t *testing.T) {
+	c := Defaults()
+	c.Server.Transport = "http"
+	c.HTTP.Issuer = "https://mcp.example.org"
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, issuer := range []string{"http://mcp.example.org", "https://mcp.example.org/path", "https://secret@host", "https://host?x=y"} {
+		c.HTTP.Issuer = issuer
+		if c.Validate() == nil {
+			t.Fatalf("accepted unsafe issuer %q", issuer)
+		}
+	}
+	c = Defaults()
+	c.HTTP.AllowedOrigins = []string{"*"}
+	if c.Validate() == nil {
+		t.Fatal("accepted wildcard origin")
+	}
+	c = Defaults()
+	c.OAuth.AccessTTL = "2h"
+	if c.Validate() == nil {
+		t.Fatal("accepted excessive access lifetime")
+	}
+}

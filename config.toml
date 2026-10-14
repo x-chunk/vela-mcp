@@ -1,6 +1,29 @@
 # Each tool is configured independently. Missing entries take built-in defaults.
 # Unknown keys and tool names are rejected at startup; restart after editing.
 # Token stays in VELA_TOKEN (.env or environment), never here.
+[server]
+transport = "stdio" # use http for a connector; CLI -transport overrides
+
+[http]
+listen = "127.0.0.1:8081"      # nginx connects to this plain HTTP listener
+issuer = "http://127.0.0.1:8081" # replace with external https://mcp.example.org
+allowed_origins = []           # issuer origin always allowed; exact extra origins
+max_request_bytes = 52428800   # MCP JSON body cap, separate from binary limits
+max_tool_result_bytes = 128000 # content+structured output; paginate/use file URLs
+
+[oauth]
+database_path = "data/oauth.db"
+encryption_key_file = "data/encryption.key" # generated once; back up with DB
+access_ttl = "15m"
+refresh_ttl = "720h"           # absolute grant lifetime; rotation never extends it
+code_ttl = "5m"
+allowed_redirect_uris = []     # optional exact admin allowlist for OAuth clients
+
+[transfers]
+enabled = true                # HTTP mode only; stdio never starts a byte listener
+database_path = "data/transfers.db"
+ttl = "15m"
+
 [vela]
 url = "http://127.0.0.1:8080" # VELA_URL overrides this value
 timeout = "120s"             # per HTTP request AND complete tool invocation
@@ -13,7 +36,7 @@ upload_roots = []
 download_roots = []
 max_upload_bytes = 268435456   # 256 MiB, streaming local uploads
 max_inline_bytes = 8388608    # 8 MiB, decoded text/base64 input
-max_read_bytes = 1048576      # 1 MiB, returned raw bytes; base64 expands by ~4/3
+max_read_bytes = 32768        # 32 KiB preview; full files use HTTP/local download
 max_download_bytes = 268435456
 
 [tools]
@@ -44,3 +67,6 @@ update_root_directory_policy = false
 purge_file = false
 purge_trash_entry = false
 empty_trash = false
+prepare_file_upload = true
+prepare_file_download = true
+get_file_transfer_status = true
