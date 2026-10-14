@@ -94,7 +94,7 @@ func (w *Workspace) source(s Source) (ReadSeekCloser, int64, error) {
 	}
 	if s.LocalPath != "" {
 		if w.files == nil {
-			return nil, 0, invalid("local file access is not configured")
+			return nil, 0, invalid("local_path is unavailable; use prepare_file_upload in HTTP mode or configure stdio upload_roots")
 		}
 		r, n, err := w.files.OpenUpload(s.LocalPath, w.limits.MaxUploadBytes)
 		if err != nil {
@@ -108,12 +108,12 @@ func (w *Workspace) source(s Source) (ReadSeekCloser, int64, error) {
 			return nil, 0, invalid("text must be valid UTF-8")
 		}
 		if int64(len(*s.Text)) > w.limits.MaxInlineBytes {
-			return nil, 0, invalid("text exceeds configured max_inline_bytes; use local_path")
+			return nil, 0, invalid("text exceeds max_inline_bytes; use HTTP prepare_file_upload or a local stdio source")
 		}
 		b = []byte(*s.Text)
 	} else {
 		if int64(len(*s.Base64)) > ((w.limits.MaxInlineBytes+2)/3)*4 {
-			return nil, 0, invalid("base64 exceeds configured max_inline_bytes; use local_path")
+			return nil, 0, invalid("base64 exceeds max_inline_bytes; use HTTP prepare_file_upload or a local stdio source")
 		}
 		var err error
 		b, err = base64.StdEncoding.Strict().DecodeString(*s.Base64)

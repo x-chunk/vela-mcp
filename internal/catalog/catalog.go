@@ -37,7 +37,16 @@ func Tools() []Tool {
 		{"purge_file", false, false, true, false, "Permanently delete one live file"},
 		{"purge_trash_entry", false, false, true, false, "Permanently delete one trashed file"},
 		{"empty_trash", false, false, true, false, "Permanently purge the caller's trash, optionally by age"},
+		{"prepare_file_upload", true, false, false, false, "Issue an HTTP upload capability bound to one file and its metadata"},
+		{"prepare_file_download", true, false, false, false, "Issue a temporary HTTP download for any binary file"},
+		{"get_file_transfer_status", true, true, false, true, "Inspect an owned HTTP transfer and its verified receipt"},
 	}
+}
+
+// HTTPOnly tools require the optional byte-transfer broker and are never
+// registered by a plain stdio server.
+func HTTPOnly(name string) bool {
+	return name == "prepare_file_upload" || name == "prepare_file_download" || name == "get_file_transfer_status"
 }
 
 func Defaults() map[string]bool {

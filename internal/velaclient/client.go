@@ -20,17 +20,30 @@ type Factory struct {
 	BaseURL string
 	Timeout time.Duration
 	Retries int
+	// DisableUploadRetries preserves honest single-attempt transfer receipts:
+	// identical existing bytes do not prove new metadata was committed.
+	DisableUploadRetries bool
 }
 
 func (f Factory) Open(_ context.Context, credential access.Credential) (app.Gateway, error) {
-	c, err := client.New(f.BaseURL, credential.Token(), client.WithHTTPClient(&http.Client{Timeout: f.Timeout}), client.WithRetries(f.Retries), client.WithUserAgent("vela-mcp/0.1.0"))
+	c, err := client.New(f.BaseURL, credential.Token(), client.WithHTTPClient(&http.Client{Timeout: f.Timeout}), client.WithRetries(f.Retries), client.WithUserAgent("vela-mcp/0.2.0"))
 	if err != nil {
 		return nil, err
 	}
-	return &gateway{c}, nil
+	uploads := c
+	if f.DisableUploadRetries {
+		uploads, err = client.New(f.BaseURL, credential.Token(), client.WithHTTPClient(&http.Client{Timeout: f.Timeout}), client.WithRetries(0), client.WithUserAgent("vela-mcp/0.2.0"))
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &gateway{c: c, uploads: uploads}, nil
 }
 
-type gateway struct{ c *client.Client }
+type gateway struct {
+	c       *client.Client
+	uploads *client.Client
+}
 
 func classify(err error) error {
 	var network *client.NetworkError
@@ -51,7 +64,7 @@ func (g *gateway) Stat(ctx context.Context, p string) (*api.Object, error) {
 	return result(g.c.Stat(ctx, p))
 }
 func (g *gateway) Upload(ctx context.Context, p string, r io.Reader, o app.UploadOptions) (*api.Object, bool, error) {
-	obj, created, err := g.c.Upload(ctx, p, r, client.UploadOptions{Size: o.Size, ContentType: o.ContentType, Visibility: o.Visibility, Title: o.Title, Description: o.Description, Tags: o.Tags, Disposition: o.Disposition, ExpiresAt: o.ExpiresAt, ClearExpiry: o.ClearExpiry, SHA256: o.SHA256, CreateOnly: o.CreateOnly, IfRevision: o.IfRevision})
+	obj, created, err := g.uploads.Upload(ctx, p, r, client.UploadOptions{Size: o.Size, ContentType: o.ContentType, Visibility: o.Visibility, Title: o.Title, Description: o.Description, Tags: o.Tags, Disposition: o.Disposition, ExpiresAt: o.ExpiresAt, ClearExpiry: o.ClearExpiry, SHA256: o.SHA256, CreateOnly: o.CreateOnly, IfRevision: o.IfRevision})
 	return obj, created, classify(err)
 }
 func (g *gateway) Download(ctx context.Context, p string) (io.ReadCloser, error) {

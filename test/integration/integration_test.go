@@ -280,6 +280,9 @@ func TestAllBusinessTools(t *testing.T) {
 		call("update_root_directory_policy", map[string]any{"patch": map[string]any{"title": "MCP integration temporary title"}})
 	}
 	for _, tool := range catalog.Tools() {
+		if catalog.HTTPOnly(tool.Name) {
+			continue
+		}
 		if !seen[tool.Name] && info.Key.Prefix == "" {
 			t.Errorf("tool %s not exercised", tool.Name)
 		}
