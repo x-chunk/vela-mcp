@@ -27,10 +27,12 @@ ARG COMMIT=none
 LABEL org.opencontainers.image.title="vela-mcp" \
       org.opencontainers.image.description="Vela MCP connector with stdio, HTTP and local OAuth" \
       org.opencontainers.image.source="https://github.com/x-chunk/vela-mcp" \
+      org.opencontainers.image.licenses="MIT" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}"
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/vela-mcp /vela-mcp
+COPY LICENSE /usr/share/licenses/vela-mcp/LICENSE
 COPY config.toml /app/config.toml
 COPY --from=build --chown=65532:65532 /out/data /data
 ENV VELA_MCP_OAUTH_DATABASE=/data/oauth.db \

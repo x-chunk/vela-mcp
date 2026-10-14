@@ -34,6 +34,7 @@ archives:
     wrap_in_directory: true
     # Explicit files prevent runtime state, .env, and credentials entering releases.
     files:
+      - LICENSE
       - README.md
       - config.toml
       - .env.example

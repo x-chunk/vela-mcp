@@ -49,6 +49,7 @@ jobs:
           labels: |
             org.opencontainers.image.title=Vela MCP
             org.opencontainers.image.description=Vela MCP server with stdio and OAuth-protected Streamable HTTP
+            org.opencontainers.image.licenses=MIT
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           # Stable tags publish X.Y.Z, X.Y, and latest; prereleases only X.Y.Z-rc.N.
           tags: |

@@ -48,7 +48,9 @@ git push origin v0.3.0
 - `vela-mcp_<version>_windows_{amd64,arm64}.zip`
 - `checksums.txt` containing SHA-256 checksums
 
-Each archive has a containing directory and includes the executable, `config.toml`, `.env.example`, `README.md`, and technical documentation. The explicit archive allowlist excludes `.env`, real keys, SQLite databases, and development binaries. `dist/` is ignored by Git and excluded from the Docker context.
+Each archive has a containing directory and includes the executable, `LICENSE` (MIT), `config.toml`, `.env.example`, `README.md`, and technical documentation. The explicit archive allowlist excludes `.env`, real keys, SQLite databases, and development binaries. `dist/` is ignored by Git and excluded from the Docker context.
+
+The Docker image includes the license at `/usr/share/licenses/vela-mcp/LICENSE` and advertises `MIT` through its OCI license label.
 
 Stable `vX.Y.Z` image releases receive `X.Y.Z`, `X.Y`, and `latest` tags. Prereleases receive their full version tag, such as `0.3.0-rc.1`, and do not replace `latest` or the minor-version tag. GitHub prereleases are marked automatically. As in Vela, stable releases update floating image tags in publication order; pin a full version or digest for controlled deployments. Do not reuse or move published tags.
 

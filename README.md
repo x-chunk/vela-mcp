@@ -2,6 +2,8 @@
 
 A Go MCP server for [Vela API v1](https://docs.xchunk.org/vela/docs/api-reference.html), with **stdio** for local clients and **Streamable HTTP with local OAuth 2.1 authorization** for connectors. Authorization uses code flow with mandatory S256 PKCE and rotating refresh tokens. One Docker image contains the executable, configuration, and CA certificates. TLS termination belongs to your reverse proxy.
 
+Licensed under the [MIT License](LICENSE).
+
 The 30 business tools cover files, metadata, visibility, moves, signed links, trash, directory policies, and binary HTTP transfers. The standard set exposes 21 tools over stdio and 23 over HTTP. Replacement, bulk deletion, root policy changes, and permanent deletion require explicit enablement.
 
 ## HTTP connector quick start
