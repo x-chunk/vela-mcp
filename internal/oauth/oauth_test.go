@@ -464,6 +464,40 @@ func TestRedirectValidationAndDiscovery(t *testing.T) {
 	}
 }
 
+func TestClientMetadataAdditionalGrantTypes(t *testing.T) {
+	o := newTestOAuth(t)
+	// The hosted Claude CIMD declares jwt-bearer for enterprise flows as well
+	// as code/PKCE. Accept its code flow without broadening this token endpoint.
+	const document = `{"client_id":"https://claude.ai/oauth/mcp-oauth-client-metadata","client_name":"Claude","redirect_uris":["https://claude.ai/api/mcp/auth_callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token","urn:ietf:params:oauth:grant-type:jwt-bearer"],"response_types":["code"]}`
+	var c client
+	if err := json.Unmarshal([]byte(document), &c); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.s.validateMetadataClient(&c); err != nil {
+		t.Fatalf("compatible hosted Claude metadata rejected: %v", err)
+	}
+	if strings.Join(c.Grants, " ") != "authorization_code refresh_token" {
+		t.Fatalf("unsupported grants retained: %v", c.Grants)
+	}
+	for _, grants := range [][]string{
+		{"urn:ietf:params:oauth:grant-type:jwt-bearer"},
+		{"refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"},
+	} {
+		c.Grants = grants
+		if err := o.s.validateMetadataClient(&c); err == nil {
+			t.Fatal("metadata without authorization_code accepted")
+		}
+	}
+	w := o.request("POST", "/oauth/register", document, "application/json")
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "invalid_client_metadata") {
+		t.Fatal("dynamic registration accepted unsupported grant types")
+	}
+	w = o.request("POST", "/oauth/token", url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"}, "client_id": {o.register(t)}, "resource": {o.s.ResourceURL()}}.Encode(), "application/x-www-form-urlencoded")
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "unsupported_grant_type") {
+		t.Fatal("token endpoint accepted unsupported jwt-bearer grant")
+	}
+}
+
 func TestClientMetadataSSRFProtection(t *testing.T) {
 	for _, address := range []string{"127.0.0.1", "::1", "10.0.0.5", "192.168.1.1", "172.16.0.1", "169.254.169.254", "100.100.100.200", "0.0.0.0", "192.0.2.10", "198.18.0.1", "2001:db8::1", "fc00::1", "::ffff:127.0.0.1", "64:ff9b::a00:1"} {
 		if publicAddress(netip.MustParseAddr(address)) {

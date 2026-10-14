@@ -178,6 +178,8 @@ Machine clients generally omit Origin. Protected browser requests default to the
 
 HTTP does not use `VELA_TOKEN`, even if the environment contains one. Use `ro` keys for read-only workflows and prefix-restricted `rw` keys for ordinary upload/edit work. Configured switches limit the exposed tools but do not expand a user's key rights. Each consent has its own grant; authorizing the same key twice does not merge token identities.
 
+Reusable client ID metadata documents may advertise grants for other authorization servers. For example, Claude's hosted document also lists `urn:ietf:params:oauth:grant-type:jwt-bearer`. Vela MCP retains only its supported authorization-code and refresh-token grants from such documents; this does not enable JWT bearer authentication. Dynamic registration remains strict and rejects unsupported grants. If the authorization page reports `Unknown or invalid OAuth client`, check the supplied client ID, outbound access to its metadata document, and the configured redirect allowlist.
+
 Actual cloud-host compatibility must be checked in your account after exposing HTTPS. Automated tests validate the local OAuth/MCP/byte flows; they do not prove a particular Claude account, connector UI, network allowlist, or native attachment format can complete every workflow.
 
 ## Configuration reference

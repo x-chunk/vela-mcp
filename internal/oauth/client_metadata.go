@@ -38,7 +38,7 @@ func (s *Server) lookupClient(ctx context.Context, id string) (client, error) {
 	if err != nil {
 		return client{}, err
 	}
-	if err = s.validateClient(&c); err != nil {
+	if err = s.validateMetadataClient(&c); err != nil {
 		return client{}, err
 	}
 	redirects, _ := json.Marshal(c.Redirects)
@@ -67,6 +67,27 @@ func (s *Server) lookupClient(ctx context.Context, id string) (client, error) {
 		return client{}, err
 	}
 	return c, nil
+}
+
+// validateMetadataClient intersects a reusable client's advertised grant types
+// with this server's capabilities. Claude's hosted document also advertises
+// jwt-bearer for other authorization servers; that does not make its ordinary
+// code/PKCE flow invalid or enable that grant here. Dynamic registration remains
+// strict because it registers a client specifically with this server.
+func (s *Server) validateMetadataClient(c *client) error {
+	if len(c.Grants) > 0 {
+		grants := make([]string, 0, len(c.Grants))
+		for _, grant := range c.Grants {
+			if grant == "authorization_code" || grant == "refresh_token" {
+				grants = append(grants, grant)
+			}
+		}
+		if len(grants) == 0 {
+			return errors.New("client metadata must support authorization_code")
+		}
+		c.Grants = grants
+	}
+	return s.validateClient(c)
 }
 
 // fetchClientMetadata isolates outbound discovery from the backend HTTP client.
