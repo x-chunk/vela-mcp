@@ -57,6 +57,13 @@ Local output uses `O_EXCL`, mode `0600`, bounded copying, checksum verification,
 
 ## Moving to HTTP and OAuth 2.1
 
+The next stage must also support bidirectional binary transfer for cloud clients:
+upload attachments into Vela, download any file into the client's computing
+environment, process it there, and return it to the user. See the proposed
+[HTTP file-transfer contract](http-file-transfer.md). This uses HTTP byte routes
+alongside MCP control operations; it does not require base64 or shared filesystem
+paths between the client and the server.
+
 This prototype has **no** OAuth server, HTTP listener, or MCP SQLite persistence. It provides integration boundaries rather than a placeholder OAuth implementation.
 
 For the next stage:

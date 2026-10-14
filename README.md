@@ -144,6 +144,12 @@ The chosen configuration is **TOML plus environment secrets**: TOML provides com
 
 See the complete [tool catalog](docs/tools.md) for permissions, arguments, and semantics, and [architecture notes](docs/architecture.md) for boundaries and the future OAuth 2.1/HTTP integration.
 
+The next HTTP stage must support uploads from cloud chat attachments and downloads
+of arbitrary binary files into the client's own computing environment, with file
+delivery back to the user. The proposed [HTTP transfer contract](docs/http-file-transfer.md)
+records both workflows and their authorization boundaries. These transfer routes
+are planned and are not present in the current stdio executable.
+
 ## Development and verification
 
 ```bash
