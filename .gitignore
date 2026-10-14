@@ -2,6 +2,7 @@
 .env.*
 !.env.example
 bin/
+/vela-mcp
 coverage.out
 *.test
 tmp/
