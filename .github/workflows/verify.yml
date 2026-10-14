@@ -1,0 +1,177 @@
+# CI and tagged releases call this same verification gate. No job requires
+# registry credentials or a writable GitHub token, including pull requests.
+name: Verify
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: format, modules, vet, race tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: require formatted Go source
+        run: |
+          unformatted=$(git ls-files -z '*.go' | xargs -0 gofmt -l)
+          if [[ -n "$unformatted" ]]; then
+            printf 'Run gofmt on these files:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+      - name: require tidy modules
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: go vet including integration tests
+        run: go vet -tags=integration ./...
+      - name: unit and race tests
+        run: go test -race -count=1 ./...
+      - name: build executable
+        run: make build
+
+  lint:
+    name: golangci-lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          # Keep in sync with GOLANGCI_LINT_VERSION in the Makefile.
+          version: v2.14.0
+          # Use the job's toolchain so the linter understands go.mod's Go version.
+          install-mode: goinstall
+
+  secrets:
+    name: redacted history and source credential scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: scan all Git history
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.0 git --redact --log-opts=--all .
+      - name: scan current source
+        # This job has a clean checkout; live test keys are only created in the
+        # separate integration job, outside its workspace.
+        run: go run github.com/zricethezav/gitleaks/v8@v8.30.0 dir --redact .
+
+  packages:
+    name: validate cross-platform release archives
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.3
+          args: check
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: v2.18.3
+          args: release --snapshot --clean --skip=publish
+
+  integration:
+    name: Docker build and disposable Vela integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # A disposable backend avoids developer credentials and shared state.
+      VELA_TEST_CONTAINER: vela-mcp-ci-${{ github.run_id }}-${{ github.run_attempt }}
+      VELA_MCP_TEST_URL: http://127.0.0.1:18080
+      MCP_TEST_IMAGE: vela-mcp:ci
+    steps:
+      - uses: actions/checkout@v7
+      - name: initialize temporary key path
+        run: printf 'VELA_MCP_TEST_KEYS=%s/vela-mcp-integration.keys\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: docker/setup-buildx-action@v4
+      - name: build MCP image without publishing
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          push: false
+          tags: ${{ env.MCP_TEST_IMAGE }}
+          build-args: |
+            VERSION=ci-${{ github.sha }}
+            COMMIT=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: start isolated Vela backend
+        run: |
+          docker run --detach --name "$VELA_TEST_CONTAINER" \
+            --publish 127.0.0.1:18080:8080 \
+            --env VELA_PUBLIC_URL="$VELA_MCP_TEST_URL" \
+            --read-only --cap-drop=ALL --security-opt=no-new-privileges \
+            xchunk/vela:0.2.0
+          ready=false
+          for attempt in {1..60}; do
+            if docker exec "$VELA_TEST_CONTAINER" velad healthcheck >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            echo 'Disposable Vela backend did not become healthy' >&2
+            exit 1
+          fi
+      - name: create and mask disposable API keys
+        run: |
+          umask 077
+          : > "$VELA_MCP_TEST_KEYS"
+          for scope in admin ro rw; do
+            key=$(docker exec "$VELA_TEST_CONTAINER" velad key create \
+              --name "mcp-ci-$scope" --scope "$scope")
+            test -n "$key"
+            printf '::add-mask::%s\n' "$key"
+            printf '%s: %s\n' "$scope" "$key" >> "$VELA_MCP_TEST_KEYS"
+            unset key
+          done
+      - name: build native MCP executable
+        run: make build
+      - name: exercise native stdio, OAuth HTTP, tools and binary transfers
+        env:
+          VELA_MCP_TEST_BINARY: ${{ github.workspace }}/bin/vela-mcp
+        run: go test -race -tags=integration -count=1 -v ./test/integration
+      - name: exercise scratch image stdio and OAuth HTTP
+        env:
+          VELA_MCP_TEST_IMAGE: ${{ env.MCP_TEST_IMAGE }}
+        run: go test -race -tags=integration -count=1 -v -run 'TestHTTPExecutable|TestStdio' ./test/integration
+      - name: remove backend, volumes and API keys
+        if: always()
+        run: |
+          docker rm --force --volumes "$VELA_TEST_CONTAINER" >/dev/null 2>&1 || true
+          rm -f "${VELA_MCP_TEST_KEYS:-$RUNNER_TEMP/vela-mcp-integration.keys}"
