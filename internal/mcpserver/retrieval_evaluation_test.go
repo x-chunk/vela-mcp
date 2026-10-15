@@ -17,6 +17,7 @@ import (
 	"go.xchunk.org/vela-mcp/internal/app"
 	"go.xchunk.org/vela-mcp/internal/catalog"
 	"go.xchunk.org/vela-mcp/internal/transfers"
+	"go.xchunk.org/vela-mcp/internal/version"
 	"go.xchunk.org/vela/api"
 )
 
@@ -284,7 +285,22 @@ func legacyRetrievalResult(t *testing.T, output any) *mcp.CallToolResult {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(serialized)}}, StructuredContent: output}
+	// Compare like-for-like protocol envelopes. The current SDK adds these
+	// fields after handlers, including handlers returning the legacy DTO.
+	wire, err := json.Marshal(map[string]any{
+		"_meta":             mcp.Meta{mcp.MetaKeyServerInfo: &mcp.Implementation{Name: "vela-mcp", Version: version.Get().Version}},
+		"resultType":        "complete",
+		"content":           []mcp.Content{&mcp.TextContent{Text: string(serialized)}},
+		"structuredContent": output,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result mcp.CallToolResult
+	if err := json.Unmarshal(wire, &result); err != nil {
+		t.Fatal(err)
+	}
+	return &result
 }
 
 func retrievalBytes(t *testing.T, result *mcp.CallToolResult) int {

@@ -2,6 +2,8 @@
 
 Implemented by the same process as MCP Streamable HTTP and local OAuth. The broker provides original-byte uploads/downloads without base64 in MCP tool arguments or a shared client/server filesystem. Configure HTTP transport and `transfers.enabled=true`; each preparation/status tool also has its own `[tools]` switch.
 
+For a known text path, `read_file` is the direct conversation-preview tool. Browse with `list_directory` or find the path through metadata-only `search_files` when necessary. Automatic reads reject binary previews; use `prepare_file_download` for PDF, images, Office files, archives, and other original bytes. Explicit `encoding="base64"` is for small byte inspection, not the attachment-transfer workflow. HTTP does not accept server-local attachment paths. Choose recovery tools from the current discovery inventory because individual switches may remove them.
+
 ## Control plane and byte plane
 
 ```mermaid
@@ -61,7 +63,7 @@ curl --fail-with-body \
 
 Redemption verifies the capability hash, expiry and active OAuth owner, atomically claims the single-use upload, and receives at most the bound size plus one verification byte. A private disk spool permits full size/SHA validation before any upstream mutation. The grant is checked again after reception; Vela independently verifies the hash and uses create-only semantics. Existing destinations are not overwritten.
 
-Success returns HTTP 201 and a persisted object receipt. A malformed size/body/hash consumes the claimed capability and returns 422; fix the input and prepare a new transfer. Replays return 409. Expired transfers return 410; invalid capabilities or inactive grants return 401. Saturated concurrency returns 503 before claim, so the same unused grant can be retried. Upstream uploads are not automatically retried; failures record a failed or uncertain outcome rather than inferring success from identical existing bytes.
+Success returns HTTP 201 and a persisted object receipt; it needs no extra MCP status call. A malformed size/body/hash consumes the claimed capability and returns 422; fix the input and prepare a new transfer. Replays return 409. Expired transfers return 410; invalid capabilities or inactive grants return 401. Saturated concurrency returns 503 before claim, so the same unused grant can be retried. Upstream uploads are not automatically retried; failures record a failed or uncertain outcome rather than inferring success from identical existing bytes.
 
 ## Download
 
@@ -90,6 +92,8 @@ The client can process the downloaded PDF, image, archive, Office file, audio or
 ## Status and recovery
 
 `get_file_transfer_status` accepts the opaque `transfer_id` and requires the same authenticated OAuth grant subject. It never returns capability secrets. Authorizing the same Vela key again creates another grant and does not grant access to prior transfer receipts.
+
+Use status after a lost or ambiguous upload response, not after every successful transfer. A truncated `read_file` result is only a content prefix, even if its full metadata is requested with `response_format="detailed"`. Download and verify the original before preparing replacement content; never upload a preview as if it were the complete source.
 
 | State | Meaning |
 | --- | --- |
