@@ -645,6 +645,9 @@ func TestConsentCSPAllowsOnlyValidatedCallbackOrigin(t *testing.T) {
 	if strings.Contains(csp, "script-src") || strings.Contains(csp, "callback") || strings.Contains(csp, "value=") {
 		t.Fatalf("non-origin input reached CSP: %s", csp)
 	}
+	if policy := w.Header().Get("Referrer-Policy"); policy != "same-origin" {
+		t.Fatalf("consent form POST would carry Origin: null under %q", policy)
+	}
 	if callbackCSPOrigin("http://127.0.0.1:3118/callback") != "http://127.0.0.1:3118" {
 		t.Fatal("native callback port missing in CSP")
 	}
