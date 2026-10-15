@@ -355,6 +355,11 @@ func (s *Server) renderConsent(w http.ResponseWriter, p consentPage) {
 		formAction += " " + origin
 	}
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action "+formAction+"; base-uri 'none'; frame-ancestors 'none'")
+	// Under no-referrer, browsers serialize the Origin of the consent POST as
+	// "null", which the Origin policy and sameOrigin must reject. same-origin
+	// keeps the real Origin for the self-submitted form while still sending
+	// nothing to the client callback or any other site.
+	w.Header().Set("Referrer-Policy", "same-origin")
 	_ = consentTemplate.Execute(w, p)
 }
 
