@@ -2,16 +2,17 @@
 
 Based on [Vela API v1](https://docs.xchunk.org/vela/docs/api-reference.html), [visibility](https://docs.xchunk.org/vela/docs/visibility.html), [signed links](https://docs.xchunk.org/vela/docs/signed-links.html), [trash](https://docs.xchunk.org/vela/docs/trash.html), and [directory policies](https://docs.xchunk.org/vela/docs/directories.html). MCP exposes business operations rather than HTTP methods. Text/attachment creation applies metadata in the same conditional upload and explicitly defaults to private. HTTP transfer preparation delegates raw byte exchange to the client's computing environment.
 
-There are 30 configurable tools. The standard stdio set registers 21; HTTP registers 23 with transfers enabled. All tools below support both transports except `download_file` (stdio only) and the three HTTP transfer tools. `upload_file` and an enabled `replace_file` accept inline bytes over HTTP, but local paths remain unavailable. Scope in the table is the minimum upstream Vela key authority, not a distinct OAuth scope; HTTP tokens use `vela` and inherit the entered key's actual rights/prefix.
+There are 31 configurable tools. The standard stdio set registers 22; HTTP registers 24 with transfers enabled. Only `search_files` was added for discovery; browsing and reading remain separate existing tools. All tools below support both transports except `download_file` (stdio only) and the three HTTP transfer tools. `upload_file` and an enabled `replace_file` accept inline bytes over HTTP, but local paths remain unavailable. Scope in the table is the minimum upstream Vela key authority, not a distinct OAuth scope; HTTP tokens use `vela` and inherit the entered key's actual rights/prefix.
 
-Inputs use JSON Schema with unknown fields rejected. Results include both `structuredContent` and a JSON text representation in `content`. API failures set `isError=true` and expose `error.code`, `message`, `status`, and, where available, `request_id` and `details`. Schema errors are also tool failures handled by the SDK. Unknown/disabled tools produce protocol errors.
+Inputs use JSON Schema with unknown fields rejected. Results include both `structuredContent` and a JSON text representation in `content`. API failures set `isError=true` and expose `error.code`, `message`, `status`, and, where available, `request_id`, `details`, and recovery guidance. Schema errors are also tool failures handled by the SDK. Unknown/disabled tools produce protocol errors. Use tools actually present in discovery: a disabled transfer or search tool is not an available recovery route.
 
 | Tool | Default | Key | Workflow and main arguments |
 | --- | --- | --- | --- |
-| `server_info` | on | ro | Server/API compatibility, effective scope/prefix, and limits; no arguments |
-| `list_directory` | on | ro | `prefix`, `recursive=false`, `visibility[]`, `limit`, `cursor`; returns `objects`, `dirs`, `next_cursor` |
+| `server_info` | on | ro | Diagnose effective scope/prefix, compatibility, or limits when needed; no required preflight |
+| `list_directory` | on | ro | `prefix`, `recursive=false`, `visibility[]`, `limit=50`, `cursor`, `response_format=concise/detailed`; returns `objects`, `dirs`, `next_cursor` |
+| `search_files` | on | ro | `query`, `prefix?`, `visibility[]`, `limit=20`, `cursor`; metadata matches in `files`, `scanned`, `complete`, `next_cursor` |
 | `get_file_metadata` | on | ro | `path`; all metadata and `revision` |
-| `read_file` | on | ro | `path`, `encoding=auto/utf-8/base64`, `max_bytes`; bounded `content`, `truncated`, `bytes_returned` |
+| `read_file` | on | ro | `path`, `encoding=auto/utf-8/base64`, `max_bytes`, `response_format=concise/detailed`; content, revision and preview status |
 | `download_file` | on, stdio only | ro | `path`, `local_path`; save a complete verified file in download roots without overwriting |
 | `create_text_file` | on | rw | `path`, `text`, `metadata`; create a new file, including empty text |
 | `upload_file` | on | rw | `path`, exactly one of `local_path`/`content_base64`, `metadata`; add a new file; local paths work only in stdio |
@@ -39,7 +40,35 @@ Inputs use JSON Schema with unknown fields rejected. Results include both `struc
 | `prepare_file_download` | on, HTTP only | ro | `path`; expiring original-byte URL, filename, object metadata, checksum and size |
 | `get_file_transfer_status` | on, HTTP only | owner | `transfer_id`; inspect your transfer, verified receipt and uncertain-result recovery |
 
-`download_file` requires configured stdio roots. HTTP always omits it, even when its switch is true. HTTP transfer tools require `transfers.enabled=true` and their own tool switches. Disabling the broker removes its routes as well. `upload_file` works through base64 without roots. The standard set permits publishing and recoverable single-file deletion; use an `ro` key and disable unwanted tools for a read-only deployment. Switches remove discovery/execution without expanding key permissions.
+`download_file` requires configured stdio roots. HTTP always omits it, even when its switch is true. HTTP transfer tools require `transfers.enabled=true` and their own tool switches. Disabling the broker removes its routes as well. `upload_file` works through base64 without roots; HTTP upload/replacement schemas omit `local_path` entirely. The standard set permits publishing and recoverable single-file deletion; use an `ro` key and disable unwanted tools for a read-only deployment. Switches remove discovery/execution without expanding key permissions.
+
+## Find, browse, and read
+
+For a known text path, call `read_file` directly. To browse a directory, use `list_directory`; to locate a file by its name or metadata, use `search_files`. Neither needs an initial `server_info` or metadata call. `get_file_metadata` is useful when metadata itself is the task.
+
+`list_directory` defaults to `response_format="concise"`. Its `objects` contain `path`, `size`, `content_type`, `visibility`, and `revision`, plus nonempty `title` and `tags`. IDs, hashes, descriptions, timestamps, and URLs are omitted. `dirs`, `prefix`, and `next_cursor` retain their usual meaning. `response_format="detailed"` restores complete Vela objects.
+
+`search_files` accepts a literal case-insensitive substring of 1–256 characters, matched against path, title, description, and individual tags. It recursively scans metadata under the authorized prefix; it does not download or search file contents. Results are compact records in path order. Defaults are 20 matches, maximum 100. Each invocation scans at most five REST pages/500 objects; sparse matches can therefore require more backend requests than browsing. Narrow the prefix when possible.
+
+Search returns `scanned`, `complete`, and `next_cursor`. A scan can return zero matches with `complete=false`: this is an incomplete result, not evidence that the file does not exist. Resume with the same query, prefix, and visibility only when more matches are needed. Search cursors are bound to those filters and the caller; they are not snapshots of a changing store. Stop when the user's task is satisfied.
+
+A concise `read_file` result has this shape:
+
+```json
+{
+  "path": "notes/hello.txt",
+  "revision": 7,
+  "size": 6,
+  "encoding": "utf-8",
+  "content": "Hello\n",
+  "bytes_returned": 6,
+  "truncated": false
+}
+```
+
+Detailed reads add the full metadata as `object`. Automatic encoding accepts readable text and rejects binary content; use an available download tool for original binary files. Explicit `encoding="base64"` is for small byte inspection, while `encoding="utf-8"` requests text interpretation explicitly. A preview may be shortened further to fit the serialized HTTP budget. UTF-8 characters are not cut in half, and `truncated=true` always means the content is only a prefix. Download the complete original before replacing a truncated file.
+
+Reuse a returned revision for a guarded metadata edit or replacement. A stale revision means the file changed: inspect its current state and reconsider the edit rather than obtaining a new revision and blindly replaying the old write.
 
 ## HTTP binary workflows
 
@@ -47,7 +76,7 @@ Use `prepare_file_upload` for files attached to a cloud conversation or generate
 
 Use `prepare_file_download` for any file type without text extraction or base64 in the conversation. A read-only key is sufficient, including for private files. The URL can be downloaded in the client's environment, opened in a browser, or returned to the user. It expires, supports Range/HEAD, and stops working when the owner's OAuth grant is revoked. The server does not change visibility or create a Vela signed link for this workflow. Host network permissions and native attachment support still apply.
 
-`get_file_transfer_status` is restricted to the authenticated grant owner. States include `prepared`, `uploading`, `succeeded`, `failed`, `uncertain` and `expired`. Successful uploads include a persisted Vela receipt. An uncertain upload may include matching destination metadata, but matching bytes alone do not prove that the original request created the object. Inspect before retrying. Download success records that verified bytes were available for serving, not that a remote host saved the complete file. See the [complete byte-transfer contract](http-file-transfer.md).
+`get_file_transfer_status` is restricted to the authenticated grant owner. States include `prepared`, `uploading`, `succeeded`, `failed`, `uncertain` and `expired`. Successful uploads include a persisted Vela receipt; a successful PUT receipt needs no extra status call. An uncertain upload may include matching destination metadata, but matching bytes alone do not prove that the original request created the object. Inspect before retrying. Download success records that verified bytes were available for serving, not that a remote host saved the complete file. See the [complete byte-transfer contract](http-file-transfer.md).
 
 ## Metadata
 
@@ -96,10 +125,12 @@ This server disallows `empty_trash` for prefix-restricted identities even if the
 
 ## Pagination and limits
 
-Objects, trash, and directory policies return one page (default 200, maximum 1000). Keep filters unchanged and pass `next_cursor` into the next call. Root/ancestor listings with prefix-scoped keys are narrowed to their permitted subtree. Directory inspection requires an accessible prefix. HTTP caps the complete serialized tool result at 128,000 bytes by default, including text and structured forms; if a page exceeds it, retry with a smaller `limit` such as 50. This budget is separate from the 50 MiB MCP JSON request limit.
+Objects, trash, and directory policies return one page (default 50, maximum 1000). Continue `next_cursor` with unchanged filters only if needed. Root/ancestor listings with prefix-scoped keys are narrowed to their permitted subtree. Directory inspection requires an accessible prefix. HTTP caps the complete serialized tool result at 128,000 bytes by default, including text and structured forms; for an oversized listing, use concise output or a smaller `limit`. This budget is separate from the 50 MiB MCP JSON request limit.
 
-Vela's links endpoint is unpaginated. MCP limits output with `limit` (default 200, maximum 1000), returning `total` and `next_offset` (null at the end). Offsets apply to a fresh upstream list: concurrent changes can shift entries; deduplicate by ID. The public client still fetches the entire filtered upstream response.
+Vela's links endpoint is unpaginated. MCP limits output with `limit` (default 50, maximum 1000), returning `total` and `next_offset` (null at the end). Offsets apply to a fresh upstream list: concurrent changes can shift entries; deduplicate by ID. The public client still fetches the entire filtered upstream response.
 
-Conversation reads default to at most 32 KiB raw content (`files.max_read_bytes`). Raising that setting or requesting a large `max_bytes` still respects the HTTP output budget; use `prepare_file_download` for complete large or binary files. Complete reads/downloads verify SHA-256 against preliminary metadata. A truncated read cannot verify the full-file hash; metadata is a snapshot before reading, and `truncated=true` means the returned content is only a prefix. An interrupted mutation may already have committed: inspect state/revision before retrying. POST move/share/restore are not automatically retried. HTTP uploads are single-attempt: equal existing bytes cannot prove that a lost request applied its metadata. Safe reads retain configured retries; conditional stdio uploads retain the public client's recovery behavior.
+Conversation reads default to at most 32 KiB raw content (`files.max_read_bytes`). Raising that setting or requesting a large `max_bytes` still respects the HTTP output budget; use `prepare_file_download` for complete large or binary files. Complete reads/downloads verify SHA-256 against preliminary metadata. A truncated read cannot verify the full-file hash; metadata is a snapshot before reading. If a successful mutation's receipt exceeds the HTTP budget, the server returns `completed=true`, `receipt_truncated=true`, the tool name, and recovery guidance instead of turning the completed operation into an error. Inspect the resulting state; do not repeat the mutation just to obtain its receipt.
+
+An interrupted mutation may already have committed: inspect state/revision before retrying. POST move/share/restore are not automatically retried. HTTP uploads are single-attempt: equal existing bytes cannot prove that a lost request applied its metadata. Safe reads retain configured retries; conditional stdio uploads retain the public client's recovery behavior.
 
 All public REST business features are covered, except the separate health probe and low-level full-replacement policy PUT (the same policy values can be set with patch). API-key administration, signing-key rotation, janitor, backups, and storage migration are local `velad` operations outside REST and have no MCP tools.

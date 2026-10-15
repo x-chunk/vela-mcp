@@ -184,7 +184,7 @@ func TestHTTPExecutable(t *testing.T) {
 		t.Fatal("web login did not use the submitted read-only key")
 	}
 	listed, err := session.ListTools(ctx, nil)
-	if err != nil || len(listed.Tools) != 23 {
+	if err != nil || len(listed.Tools) != 24 {
 		t.Fatal("HTTP executable tool inventory failed")
 	}
 }
@@ -257,8 +257,8 @@ func TestHTTPConnectorOAuthAndBinaryTransfers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Tools) != 23 {
-		t.Fatalf("HTTP standard inventory %d, expected 23", len(listed.Tools))
+	if len(listed.Tools) != 24 {
+		t.Fatalf("HTTP standard inventory %d, expected 24", len(listed.Tools))
 	}
 	info := result(t, session, "server_info", map[string]any{})
 	prefix := info["key"].(map[string]any)["prefix"].(string) + fmt.Sprintf("mcp-http-%d/", time.Now().UnixNano())

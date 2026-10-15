@@ -52,8 +52,9 @@ func TestHTTPResultBudgetPreservesStructuredDataOrReturnsActionableError(t *test
 	if err != nil || !large.IsError {
 		t.Fatal("oversized response was returned")
 	}
-	if !strings.Contains(large.Content[0].(*mcp.TextContent).Text, "prepare_file_download") {
-		t.Fatal("response limit did not explain recovery")
+	message := large.Content[0].(*mcp.TextContent).Text
+	if !strings.Contains(message, "max_bytes") || strings.Contains(message, "prepare_file_download") {
+		t.Fatal("response limit did not explain recovery with the available tools")
 	}
 	small, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "read_file", Arguments: map[string]any{"path": "small"}})
 	if err != nil || small.IsError || small.StructuredContent == nil {

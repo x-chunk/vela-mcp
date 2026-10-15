@@ -12,6 +12,7 @@ func Tools() []Tool {
 	return []Tool{
 		{"server_info", true, true, false, true, "Server version, effective key and limits"},
 		{"list_directory", true, true, false, true, "List immediate children or a recursive page"},
+		{"search_files", true, true, false, true, "Find files by a bounded metadata search"},
 		{"get_file_metadata", true, true, false, true, "Inspect metadata and revision"},
 		{"read_file", true, true, false, true, "Read bounded text or base64 content"},
 		{"download_file", true, false, false, false, "Save a verified file to an allowed local output directory"},

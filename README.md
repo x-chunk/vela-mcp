@@ -4,7 +4,7 @@ A Go MCP server for [Vela API v1](https://docs.xchunk.org/vela/docs/api-referenc
 
 Licensed under the [MIT License](LICENSE).
 
-The 30 business tools cover files, metadata, visibility, moves, signed links, trash, directory policies, and binary HTTP transfers. The standard set exposes 21 tools over stdio and 23 over HTTP. Replacement, bulk deletion, root policy changes, and permanent deletion require explicit enablement.
+The 31 business tools cover file discovery, contents, metadata, visibility, moves, signed links, trash, directory policies, and binary HTTP transfers. The standard set exposes 22 tools over stdio and 24 over HTTP. Replacement, bulk deletion, root policy changes, and permanent deletion require explicit enablement.
 
 ## HTTP connector quick start
 
@@ -57,13 +57,17 @@ The same image supports stdio with `docker run --rm -i ... vela-mcp:dev -transpo
 
 New files are create-only and explicitly default to **private**. Creation applies all writable metadata in the same upload: `visibility`, `title`, `description`, `tags`, `content_type`, `disposition`, and `expires_at`. Vela assigns IDs, hashes, sizes, revisions, and bookkeeping timestamps. Directories are implicit prefixes; no empty-directory creation is needed.
 
+Use `read_file` directly for a known text path, `list_directory` to browse, and `search_files` to find a path by a case-insensitive substring in its path, title, description, or tags. Search is metadata-only: it scans at most five REST pages/500 files per call, returning up to 20 matches by default (maximum 100). An empty incomplete search does not prove absence; continue its cursor only if needed. It is not semantic or file-content search.
+
+Listings default to 50 concise records; reads return content, path, revision, size, and preview status. Set `response_format="detailed"` on either tool for complete file metadata. Reuse a revision already returned by listing, reading, or a successful write for guarded edits. Ordinary operations need no metadata or `server_info` preflight. See [tool contracts](docs/tools.md) for result shapes and [design research and measurements](docs/tool-design.md) for the tradeoffs.
+
 For HTTP connectors, use `prepare_file_upload` to bind a destination, metadata, size, and SHA-256. Send the original bytes from the client's computing environment to the returned PUT URL using the returned authorization header. `prepare_file_download` returns an expiring browser-usable URL for the original bytes of any file, including PDF, images, Office documents, archives, audio, and arbitrary binary formats. Read-only Vela keys can prepare downloads without changing private visibility. Check `get_file_transfer_status` after a lost response.
 
 An HTTP connector alone does not transfer chat attachments. The client must perform the advertised HTTP request from its own computing environment. Its host must permit network access to your domain. Native attachments and file processing depend on the host's format and size support; an expiring link is the fallback. See the implemented [file-transfer contract](docs/http-file-transfer.md).
 
 For stdio, `upload_file` accepts base64 or a process-visible absolute `local_path`; `download_file` writes to an allowed output directory. Configure `files.upload_roots` / `files.download_roots` and mount those directories into Docker when needed. An attached cloud file is not automatically present on the server's filesystem. HTTP deployments disable local filesystem access and omit `download_file`, even when stdio roots exist in the configuration.
 
-Conversation previews default to 32 KiB. HTTP also caps each complete tool result at 128,000 serialized bytes, including text and structured representations, to keep connector responses bounded. Reduce `limit`/`max_bytes` when a result is too large, or download the original file through a transfer URL. Binary transfer limits default to 256 MiB independently of preview/result caps.
+Conversation previews default to at most 32 KiB. Automatic reading accepts text and rejects binary previews; explicit `encoding="base64"` is available for small byte inspection. HTTP caps each complete tool result at 128,000 serialized bytes, including text and structured representations. Read previews shorten automatically at UTF-8 boundaries to fit that budget and report `truncated=true`; download the original before replacing a truncated file. For oversized listings, use concise output or a smaller `limit`. Binary transfer limits default to 256 MiB independently of preview/result caps.
 
 ## Configuration
 
@@ -78,6 +82,7 @@ listen = "127.0.0.1:8081"
 issuer = "https://vela-mcp.example.com"
 
 [tools]
+search_files = true
 read_file = true
 prepare_file_upload = true
 prepare_file_download = true
