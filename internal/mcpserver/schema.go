@@ -32,7 +32,7 @@ func dirPath() schema {
 	return str("Logical directory prefix, e.g. docs/. Empty string or / means the root.")
 }
 func rev() schema {
-	return integer("Apply only to this metadata revision; obtain it with get_file_metadata or inspect_directory.", 1, 0)
+	return integer("Apply only to this file/directory revision. Reuse a revision from an earlier result; inspect only when unknown or stale.", 1, 0)
 }
 func id() schema {
 	return schema{"type": "string", "pattern": "^[0-9a-hjkmnp-tv-z]{26}$", "description": "Vela lowercase ULID from a previous result."}
@@ -69,7 +69,7 @@ func directoryPatch() schema {
 	return s
 }
 func pagination(props schema) schema {
-	props["limit"] = integer("Page size, default 200. Follow next_cursor until empty.", 1, 1000)
-	props["cursor"] = str("Opaque next_cursor from the previous page with the same filters.")
+	props["limit"] = integer("Page size, default 50. Request another page only if needed.", 1, 1000)
+	props["cursor"] = str("Opaque next_cursor from the previous page. Keep the same filters; omit to start again.")
 	return object(props)
 }

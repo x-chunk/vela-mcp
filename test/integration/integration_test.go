@@ -209,11 +209,16 @@ func TestAllBusinessTools(t *testing.T) {
 	os.WriteFile(source, binary, 0600)
 	call("upload_file", map[string]any{"path": prefix + "docs/attachment.bin", "local_path": source, "metadata": map[string]any{"visibility": "private", "title": "Приложение", "description": "Бинарный файл", "tags": []string{"binary"}, "content_type": "application/octet-stream", "disposition": "attachment", "expires_at": "2d"}})
 	call("upload_file", map[string]any{"path": prefix + "docs/base64.bin", "content_base64": base64.StdEncoding.EncodeToString(binary)})
-	binaryResult := call("read_file", map[string]any{"path": prefix + "docs/base64.bin"})
+	expectError(t, s, "read_file", map[string]any{"path": prefix + "docs/base64.bin"}, "invalid_request")
+	binaryResult := call("read_file", map[string]any{"path": prefix + "docs/base64.bin", "encoding": "base64"})
 	if binaryResult["encoding"] != "base64" || binaryResult["content"] != base64.StdEncoding.EncodeToString(binary) {
 		t.Fatal("binary read differs")
 	}
 	listing := call("list_directory", map[string]any{"prefix": prefix, "recursive": true, "limit": 1})
+	search := call("search_files", map[string]any{"query": "привет", "prefix": prefix})
+	if len(search["files"].([]any)) != 1 {
+		t.Fatal("metadata search did not find the Unicode path")
+	}
 	if listing["next_cursor"] == "" {
 		t.Fatal("missing cursor")
 	}
@@ -354,8 +359,8 @@ func TestStdio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(listed.Tools) != 21 {
-		t.Fatalf("default stdio tool count %d, want 21", len(listed.Tools))
+	if len(listed.Tools) != 22 {
+		t.Fatalf("default stdio tool count %d, want 22", len(listed.Tools))
 	}
 	info := result(t, s, "server_info", map[string]any{})
 	key := info["key"].(map[string]any)

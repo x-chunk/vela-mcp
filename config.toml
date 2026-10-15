@@ -42,6 +42,7 @@ max_download_bytes = 268435456
 [tools]
 server_info = true
 list_directory = true
+search_files = true
 get_file_metadata = true
 read_file = true
 download_file = true
